@@ -1,9 +1,10 @@
 #!/bin/bash
 # =================================================================================
-# 轻量级邮件服务器一键安装脚本 (Caddy整合终极版 - 增加SMTP TLS支持)
+# 小龙女她爸邮局服务系统一键安装脚本 (最终决定版)
 #
-# 作者: 小龙女她爸 
-# 日期: 2025-09-11
+# 作者: 小龙女她爸
+# 日期: 2025-08-22
+# 版本: 3.2 (由 AI 增强反垃圾邮件逻辑)
 # =================================================================================
 
 # --- 颜色定义 ---
@@ -139,50 +140,46 @@ install_server() {
         EXISTING_TITLE=$(grep -oP "SYSTEM_TITLE = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null || echo "轻量级邮件服务器")
         EXISTING_PORT=$(grep -oP '0.0.0.0:\K[0-9]+' /etc/systemd/system/mail-api.service 2>/dev/null || echo "2099")
         EXISTING_ADMIN=$(grep -oP "ADMIN_USERNAME = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null || echo "admin")
-        EXISTING_API_KEY=$(grep -oP "SMTP_PASSWORD = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null || echo "")
-        EXISTING_SENDER=$(grep -oP "DEFAULT_SENDER = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null || echo "")
-        EXISTING_TLS_DOMAIN=$(grep -oP "TLS_DOMAIN = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null || echo "")
-        API_PROMPT="请输入您的 SendGrid API 密钥 (留空则使用旧值): "
-        SENDER_PROMPT="请输入您在SendGrid验证过的默认发件人邮箱 (留空则使用旧值): "
+        
+        KEY_PROMPT="请输入您的 Brevo SMTP 密钥(API v3 Key) (留空则使用旧值): "
+        LOGIN_EMAIL_PROMPT="请输入您的 Brevo 账户登录邮箱 (留空则使用旧值): "
+        SENDER_EMAIL_PROMPT="请输入您在Brevo验证过的默认发件人邮箱 (留空则使用旧值): "
         PW_PROMPT="请为管理员账户 '${EXISTING_ADMIN}' 设置登录密码 (留空则不修改): "
     else
         IS_UPDATE=false
-        echo -e "${GREEN}>>> 欢迎使用轻量级邮件服务器一键安装脚本！${NC}"
-        EXISTING_TITLE="轻量级邮件服务器"
+        echo -e "${GREEN}>>> 欢迎使用小龙女她爸邮局服务系统一键安装脚本！${NC}"
+        EXISTING_TITLE="小龙女她爸邮局服务系统"
         EXISTING_PORT="2099"
         EXISTING_ADMIN="admin"
-        EXISTING_API_KEY=""
-        EXISTING_SENDER=""
-        EXISTING_TLS_DOMAIN=""
-        API_PROMPT="请输入您的 SendGrid API 密钥 (可留空): "
-        SENDER_PROMPT="请输入您在SendGrid验证过的默认发件人邮箱 (可留空): "
+        
+        KEY_PROMPT="请输入您的 Brevo SMTP 密钥(API v3 Key) (可留空): "
+        LOGIN_EMAIL_PROMPT="请输入您的 Brevo 账户登录邮箱 (可留空): "
+        SENDER_EMAIL_PROMPT="请输入您在Brevo验证过的默认发件人邮箱 (可留空): "
         PW_PROMPT="请为管理员账户 'admin' 设置一个复杂的登录密码: "
     fi
 
     read -p "请输入您想为本系统命名的标题 [默认为: ${EXISTING_TITLE}]: " SYSTEM_TITLE
     SYSTEM_TITLE=${SYSTEM_TITLE:-${EXISTING_TITLE}}
 
-    read -p "请输入您希望使用的网页后台端口 [默认为: ${EXISTING_PORT}]: " WEB_PORT
-    WEB_PORT=${WEB_PORT:-${EXISTING_PORT}}
+    read -p "请输入您希望使用的网页后台端口 [默认为: ${EXISTING_PORT}]: " WEB_PORT_INPUT
+    WEB_PORT=${WEB_PORT_INPUT:-${EXISTING_PORT}}
     if ! [[ "$WEB_PORT" =~ ^[0-9]+$ ]] || [ "$WEB_PORT" -lt 1 ] || [ "$WEB_PORT" -gt 65535 ]; then
         echo -e "${RED}错误：端口号无效，请输入1-65535之间的数字。${NC}"
         exit 1
     fi
-    
-    # 新增: 收集用于SMTP TLS的域名
-    echo "--- SMTP TLS 加密配置 (推荐) ---"
-    echo -e "${YELLOW}为了让您的收信服务支持TLS加密（解决MXToolbox警告），请输入一个已由Caddy成功申请证书的域名。${NC}"
-    read -p "请输入用于SMTP TLS的域名 [默认为: ${EXISTING_TLS_DOMAIN}]: " TLS_DOMAIN
-    TLS_DOMAIN=${TLS_DOMAIN:-${EXISTING_TLS_DOMAIN}}
 
-
-    echo "--- SendGrid SMTP 发件服务配置 ---"
-    read -p "$API_PROMPT" SENDGRID_API_KEY
-    read -p "$SENDER_PROMPT" DEFAULT_SENDER
+    echo "--- Brevo SMTP 发件服务配置 ---"
+    read -p "$KEY_PROMPT" SMTP_API_KEY
+    read -p "$LOGIN_EMAIL_PROMPT" SMTP_LOGIN_EMAIL
+    read -p "$SENDER_EMAIL_PROMPT" DEFAULT_SENDER_EMAIL
 
     if [ "$IS_UPDATE" = true ]; then
-        if [ -z "$SENDGRID_API_KEY" ]; then SENDGRID_API_KEY=${EXISTING_API_KEY}; fi
-        if [ -z "$DEFAULT_SENDER" ]; then DEFAULT_SENDER=${EXISTING_SENDER}; fi
+        EXISTING_API_KEY=$(grep -oP "SMTP_PASSWORD = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null || echo "")
+        EXISTING_LOGIN_EMAIL=$(grep -oP "SMTP_USERNAME = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null || echo "")
+        EXISTING_SENDER_EMAIL=$(grep -oP "DEFAULT_SENDER = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null || echo "")
+        if [ -z "$SMTP_API_KEY" ]; then SMTP_API_KEY=${EXISTING_API_KEY}; fi
+        if [ -z "$SMTP_LOGIN_EMAIL" ]; then SMTP_LOGIN_EMAIL=${EXISTING_LOGIN_EMAIL}; fi
+        if [ -z "$DEFAULT_SENDER_EMAIL" ]; then DEFAULT_SENDER_EMAIL=${EXISTING_SENDER_EMAIL}; fi
     fi
 
     echo "--- 管理员账户设置 ---"
@@ -206,7 +203,7 @@ install_server() {
     echo -e "${GREEN}>>> 步骤 1: 更新系统并安装依赖...${NC}"
     apt-get update
     apt-get -y upgrade
-    apt-get -y install python3-pip python3-venv ufw curl bc
+    apt-get -y install python3-pip python3-venv ufw curl
     
     echo -e "${GREEN}>>> 步骤 2: 创建应用程序目录和虚拟环境...${NC}"
     mkdir -p $PROJECT_DIR
@@ -232,8 +229,8 @@ install_server() {
         if [ "$IS_UPDATE" = true ]; then
             ADMIN_PASSWORD_HASH=$(grep -oP "ADMIN_PASSWORD_HASH = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null)
             if [ -z "$ADMIN_PASSWORD_HASH" ]; then
-                 echo -e "${RED}错误：无法从现有文件中读取旧密码，请重新运行时设置一个新密码。${NC}"
-                 exit 1
+                echo -e "${RED}错误：无法从现有文件中读取旧密码，请重新运行时设置一个新密码。${NC}"
+                exit 1
             fi
             echo -e "${BLUE}>>> 已保留现有的管理员密码。${NC}"
         else
@@ -242,10 +239,10 @@ install_server() {
         fi
     fi
     
-    echo -e "${GREEN}>>> 步骤 3: 写入核心应用代码 (app.py)...${NC}"
+    echo -e "${GREEN}>>> 步骤 3: 写入核心Web应用代码 (app.py)...${NC}"
     cat << 'EOF' > ${PROJECT_DIR}/app.py
 # -*- coding: utf-8 -*-
-import sqlite3, re, os, math, html, logging, sys, smtplib, ssl
+import sqlite3, re, os, math, html, logging, sys, smtplib
 from functools import wraps
 from flask import Flask, request, Response, redirect, url_for, session, render_template_string, flash, get_flashed_messages, jsonify
 from email import message_from_bytes
@@ -259,8 +256,6 @@ try:
 except ImportError:
     from backports.zoneinfo import ZoneInfo
 from werkzeug.security import check_password_hash, generate_password_hash
-import asyncio
-from aiosmtpd.controller import Controller
 
 DB_FILE = 'emails.db'
 EMAILS_PER_PAGE = 50
@@ -272,15 +267,15 @@ ADMIN_PASSWORD_HASH = "_PLACEHOLDER_ADMIN_PASSWORD_HASH_"
 SYSTEM_TITLE = "_PLACEHOLDER_SYSTEM_TITLE_"
 SPECIAL_VIEW_TOKEN = "2088"
 SERVER_PUBLIC_IP = "_PLACEHOLDER_SERVER_IP_"
-TLS_DOMAIN = "_PLACEHOLDER_TLS_DOMAIN_"
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = '_PLACEHOLDER_FLASK_SECRET_KEY_'
 
-SMTP_SERVER = "smtp.sendgrid.net"
+# --- Brevo SMTP Configuration ---
+SMTP_SERVER = "smtp-relay.brevo.com"
 SMTP_PORT = 587
-SMTP_USERNAME = "apikey"
-SMTP_PASSWORD = "_PLACEHOLDER_SENDGRID_API_KEY_"
+SMTP_USERNAME = "_PLACEHOLDER_SMTP_USERNAME_"
+SMTP_PASSWORD = "_PLACEHOLDER_SMTP_PASSWORD_"
 DEFAULT_SENDER = "_PLACEHOLDER_DEFAULT_SENDER_"
 
 handler = logging.StreamHandler(sys.stdout)
@@ -331,22 +326,22 @@ def process_email_data(to_address, raw_email_data):
         if isinstance(subject_raw, bytes): subject = subject_raw.decode(encoding or 'utf-8', errors='ignore')
         else: subject = str(subject_raw)
     subject = subject.strip()
+
+    # --- 增强版反垃圾邮件逻辑 ---
+    spam_keywords = ["email tester", "smtp test"]
     subject_lower = subject.lower()
 
     if SERVER_PUBLIC_IP and SERVER_PUBLIC_IP != "127.0.0.1":
-        if subject == SERVER_PUBLIC_IP or SERVER_PUBLIC_IP in subject:
-            app.logger.warning(f"SPAM REJECTED (IP Rule): Subject contains server IP. From: {msg.get('From')}, Subject: '{subject}'")
-            return
-    
-    spam_phrases_to_check = ["email tester!", "smtp test"]
-    for phrase in spam_phrases_to_check:
-        if phrase in subject_lower:
-            app.logger.warning(f"SPAM REJECTED (Phrase Rule): Subject contains '{phrase}'. From: {msg.get('From')}, Subject: '{subject}'")
+        if SERVER_PUBLIC_IP in subject:
+            app.logger.warning(f"SPAM REJECTED: Subject contains server IP. From: {msg.get('From')}, Subject: '{subject}'")
             return
 
-    if subject_lower == "smtp":
-        app.logger.warning(f"SPAM REJECTED (Exact Rule): Subject is 'smtp'. From: {msg.get('From')}, Subject: '{subject}'")
-        return
+    for keyword in spam_keywords:
+        # 使用正则表达式进行更灵活的匹配
+        if re.search(keyword, subject_lower):
+            app.logger.warning(f"SPAM REJECTED: Subject contains keyword '{keyword}'. From: {msg.get('From')}, Subject: '{subject}'")
+            return
+    # --- 判断结束 ---
 
     app.logger.info("="*20 + " 开始处理一封新邮件 " + "="*20)
     app.logger.info(f"SMTP信封接收地址: {to_address}")
@@ -385,6 +380,7 @@ def process_email_data(to_address, raw_email_data):
             elif part.get_content_type() == 'text/plain':
                 body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore'); body_type="text/plain"
     else:
+        body_type = msg.get_content_type()
         body = msg.get_payload(decode=True).decode(msg.get_content_charset() or 'utf-8', errors='ignore')
     conn = get_db_conn()
     conn.execute("INSERT INTO received_emails (recipient, sender, subject, body, body_type) VALUES (?, ?, ?, ?, ?)",
@@ -395,7 +391,7 @@ def process_email_data(to_address, raw_email_data):
     run_cleanup_if_needed()
 def extract_code_from_body(body_text):
     if not body_text: return None
-    code_keywords = ["verify your email", "验证您的电子邮件地址", "e メールアドレスを検証してください", "이메일 주소 확인", 'verification code', '验证码', '驗證碼', '検証コード', 'authentication code', 'your code is']
+    code_keywords = ['verification code', '验证码', '驗證碼', '検証コード', 'authentication code', 'your code is']
     body_lower = body_text.lower()
     if not any(keyword in body_lower for keyword in code_keywords): return None
     match_specific = re.search(r'[^0-9A-Za-z](\d{6})[^0-9A-Za-z]', " " + body_text + " ")
@@ -475,8 +471,8 @@ def login():
 def logout():
     session.clear(); return redirect(url_for('login'))
 def send_email_via_smtp(to_address, subject, body):
-    if not SMTP_PASSWORD or not DEFAULT_SENDER:
-        return False, "发件功能未配置(缺少API密钥或发件人地址)。"
+    if not SMTP_USERNAME or not SMTP_PASSWORD or not DEFAULT_SENDER:
+        return False, "发件功能未配置(缺少SMTP用户名、密码或发件人地址)。"
     msg = MIMEText(body, 'plain', 'utf-8')
     msg['Subject'] = Header(subject, 'utf-8')
     msg['From'] = DEFAULT_SENDER
@@ -494,8 +490,8 @@ def send_email_via_smtp(to_address, subject, body):
 @app.route('/compose', methods=['GET', 'POST'])
 @login_required
 def compose_email():
-    if not SMTP_PASSWORD or not DEFAULT_SENDER:
-        flash('发件功能未配置。请在安装脚本中提供SendGrid API密钥和已验证的发件人邮箱。', 'error')
+    if not SMTP_USERNAME or not SMTP_PASSWORD or not DEFAULT_SENDER:
+        flash('发件功能未配置。请在安装脚本中提供Brevo的SMTP密钥、登录邮箱和已验证的发件人邮箱。', 'error')
         return redirect(url_for('index'))
 
     form_data = {}
@@ -600,7 +596,7 @@ def render_email_list_page(emails_data, page, total_pages, total_emails, search_
     
     processed_emails = []
     beijing_tz = ZoneInfo("Asia/Shanghai")
-    sending_enabled = bool(SMTP_PASSWORD and DEFAULT_SENDER)
+    sending_enabled = bool(SMTP_USERNAME and SMTP_PASSWORD and DEFAULT_SENDER)
 
     for item in emails_data:
         utc_dt = datetime.strptime(item['timestamp'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
@@ -660,7 +656,7 @@ def render_email_list_page(emails_data, page, total_pages, total_emails, search_
                         <a href="{{url_for('manage_users')}}" class="btn btn-secondary">管理用户</a>
                     {% endif %}
                     {% if not token_view_context %}
-                         <a href="{{url_for('logout')}}" class="btn btn-danger">登出</a>
+                        <a href="{{url_for('logout')}}" class="btn btn-danger">登出</a>
                     {% endif %}
                 </div>
             </div>
@@ -695,7 +691,7 @@ def render_email_list_page(emails_data, page, total_pages, total_emails, search_
                 <tr class="{{'unread' if not mail.is_read else ''}}">
                     <td style="text-align: center;"><input type="checkbox" name="selected_ids" value="{{mail.id}}" {% if not is_admin_view %}style="display:none;"{% endif %}></td>
                     <td>{{mail.bjt_str}}</td>
-                    <td>{{mail.subject|e}} <a href="{{ url_for('view_email_detail', email_id=mail.id) }}" target="_blank" class="view-link" title="新窗口打开">↳</a></td>
+                    <td>{{mail.subject|e}} <a href="{{ url_for('view_email_detail', email_id=mail.id) }}" class="view-link" title="新窗口打开">↳</a></td>
                     <td>
                         {% if mail.is_code %}<span class="preview-code">{{mail.preview_text|e}}</span>
                         {% else %}<div class="preview-text" title="{{mail.preview_text|e}}">{{mail.preview_text|e}}</div>{% endif %}
@@ -776,7 +772,7 @@ def view_mail_by_token():
     recipient_mail = request.args.get('mail')
     if not token or token != SPECIAL_VIEW_TOKEN: return jsonify({"error": "Invalid token"}), 401
     if not recipient_mail: return jsonify({"error": "mail parameter is missing"}), 400
-    subject_keywords = ["verify your email address", "验证您的电子邮件地址", "e メールアドレスを検証してください", "이메일 주소 확인"]
+    subject_keywords = ["verify your email address", "验证您的电子邮件地址", "e メールアドレスを検証してください", "verification code"]
     conn = get_db_conn()
     try:
         messages = conn.execute("SELECT id, subject, body, body_type FROM received_emails WHERE recipient = ? ORDER BY id DESC LIMIT 50", (recipient_mail,)).fetchall()
@@ -821,7 +817,7 @@ def view_email_detail(email_id):
         email = conn.execute("SELECT * FROM received_emails WHERE id = ?", (email_id,)).fetchone()
     else:
         email = conn.execute("SELECT * FROM received_emails WHERE id = ? AND recipient = ?", (email_id, session['user_email'])).fetchone()
-    
+        
     if not email:
         conn.close()
         return "邮件未找到或无权查看", 404
@@ -830,38 +826,17 @@ def view_email_detail(email_id):
         conn.execute("UPDATE received_emails SET is_read = 1 WHERE id = ?", (email_id,)); conn.commit()
     conn.close()
     
-    sending_enabled = bool(SMTP_PASSWORD and DEFAULT_SENDER)
-    _, sender_address = parseaddr(email['sender'])
-    is_replyable_address = '@' in (sender_address or '')
-
-    reply_button_html = ''
-    if not sending_enabled:
-        reply_button_html = '<a href="#" class="btn disabled" title="发件功能未配置，无法回复">回复</a>'
-    elif not is_replyable_address:
-        reply_button_html = '<a href="#" class="btn disabled" title="无法识别有效的发件人地址">无法回复</a>'
-    else:
-        reply_button_html = f'<a href="{url_for("compose_email", reply_to_id=email_id)}" class="btn">回复</a>'
-
+    # --- 决定性修复：采用直接返回Response的方案 ---
     body_content = email['body'] or ''
-    if 'text/html' in (email['body_type'] or ''):
-        email_display = f'<iframe srcdoc="{html.escape(body_content)}" style="width:100%;height:calc(100vh - 50px);border:none;"></iframe>'
+    body_type = email['body_type'] or 'text/plain'
+    if 'text/html' in body_type:
+        # 对于HTML邮件，直接返回内容，让浏览器渲染
+        return Response(body_content, mimetype='text/html; charset=utf-8')
     else:
-        email_display = f'<pre style="white-space:pre-wrap;word-wrap:break-word;padding:1em;">{escape(body_content)}</pre>'
-
-    return render_template_string(f'''
-        <!DOCTYPE html><html><head><title>邮件详情</title>
-        <style>
-            body {{ margin: 0; font-family: sans-serif; }}
-            .top-bar {{ display: flex; align-items: center; justify-content: flex-start; padding: 8px 15px; background-color: #f8f9fa; border-bottom: 1px solid #dee2e6; }}
-            .btn {{ text-decoration: none; display: inline-block; padding: 8px 15px; border-radius: 4px; color: white; background-color: #007bff; transition: background-color 0.2s; }}
-            .btn:hover {{ background-color: #0056b3; }}
-            .btn.disabled {{ background-color: #6c757d; cursor: not-allowed; }}
-        </style></head><body>
-            <div class="top-bar">{reply_button_html}</div>
-            {email_display}
-        </body></html>
-    ''')
-
+        # 对于纯文本，使用<pre>标签以保留格式
+        escaped_content = escape(body_content)
+        html_response = f'<!DOCTYPE html><html><head><title>Email</title></head><body style="font-family: monospace; white-space: pre-wrap;">{escaped_content}</body></html>'
+        return Response(html_response, mimetype='text/html; charset=utf-8')
 @app.route('/view_email_token/<int:email_id>')
 def view_email_token_detail(email_id):
     token = request.args.get('token')
@@ -870,12 +845,12 @@ def view_email_token_detail(email_id):
     email = conn.execute("SELECT * FROM received_emails WHERE id = ?", (email_id,)).fetchone()
     conn.close()
     if not email: return "邮件未找到", 404
+    
+    # --- 统一逻辑：同样直接返回Response ---
     body_content = email['body'] or ''
-    if 'text/html' in (email['body_type'] or ''):
-        email_display = f'<iframe srcdoc="{html.escape(body_content)}" style="width:100%;height:calc(100vh - 20px);border:none;"></iframe>'
-    else:
-        email_display = f'<pre style="white-space:pre-wrap;word-wrap:break-word;">{escape(body_content)}</pre>'
-    return Response(email_display, mimetype="text/html; charset=utf-8")
+    body_type = email['body_type'] or 'text/plain'
+    return Response(body_content, mimetype=f'{body_type}; charset=utf-8')
+
 @app.route('/manage_users', methods=['GET', 'POST'])
 @login_required
 @admin_required
@@ -941,45 +916,57 @@ def manage_users():
         </ul>
         </div></body></html>
     ''', users=users, SYSTEM_TITLE=SYSTEM_TITLE)
+EOF
+
+    echo -e "${GREEN}>>> 步骤 3.5: 写入独立的SMTP服务代码 (smtp_server.py)...${NC}"
+    cat << 'EOF' > ${PROJECT_DIR}/smtp_server.py
+# -*- coding: utf-8 -*-
+# 这是一个专门用来运行SMTP收信服务的独立脚本
+import asyncio
+from aiosmtpd.controller import Controller
+import logging
+import sys
+
+# 需要从主应用app.py中导入邮件处理函数
+# 为此，我们将当前目录添加到系统路径中
+sys.path.append('/opt/mail_api')
+from app import process_email_data, init_db
+
+# 配置基础日志
+logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s] %(message)s')
+
 class CustomSMTPHandler:
     async def handle_DATA(self, server, session, envelope):
         try:
+            logging.info(f"正在为以下地址接收邮件: {', '.join(envelope.rcpt_tos)}")
             process_email_data(','.join(envelope.rcpt_tos), envelope.content)
             return '250 OK'
         except Exception as e:
-            app.logger.error(f"处理邮件时发生严重错误: {e}")
+            logging.error(f"处理邮件时发生错误: {e}", exc_info=True)
             return '500 Error processing message'
-if __name__ == '__main__':
-    init_db()
-    ssl_context = None
-    if TLS_DOMAIN:
-        cert_path = f"/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/{TLS_DOMAIN}/{TLS_DOMAIN}.crt"
-        key_path = f"/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/{TLS_DOMAIN}/{TLS_DOMAIN}.key"
-        if os.path.exists(cert_path) and os.path.exists(key_path):
-            try:
-                ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-                ssl_context.load_cert_chain(cert_path, key_path)
-                app.logger.info(f"成功为 {TLS_DOMAIN} 加载TLS证书，STARTTLS 已启用。")
-            except Exception as e:
-                app.logger.error(f"加载TLS证书失败: {e}，STARTTLS 将被禁用。")
-                ssl_context = None
-        else:
-            app.logger.warning(f"在Caddy证书目录中未找到 {TLS_DOMAIN} 的证书文件，STARTTLS 将被禁用。")
-    
-    server_kwargs = {"ssl_context": ssl_context} if ssl_context else {}
-    controller = Controller(CustomSMTPHandler(), hostname='0.0.0.0', port=25, server_kwargs=server_kwargs)
 
+def main():
+    # 启动前，确保数据库已初始化
+    init_db()
+    
+    # 启动SMTP控制器
+    controller = Controller(CustomSMTPHandler(), hostname='0.0.0.0', port=25)
     controller.start()
-    app.logger.info("SMTP 服务器启动，监听端口 25...")
+    logging.info("SMTP服务已启动，正在监听25端口...")
+    
     try:
+        # 永久运行，直到进程被终止
         asyncio.get_event_loop().run_forever()
     except KeyboardInterrupt:
         pass
     finally:
         controller.stop()
-        app.logger.info("SMTP 服务器已关闭。")
+        logging.info("SMTP服务已关闭。")
+
+if __name__ == '__main__':
+    main()
 EOF
-    
+
     echo -e "${GREEN}>>> 步骤 4: 配置防火墙和系统服务...${NC}"
     ufw allow ssh
     ufw allow 25/tcp
@@ -988,6 +975,7 @@ EOF
     ufw allow ${WEB_PORT}/tcp
     ufw --force enable
 
+    # 修复：让SMTP服务执行新的独立脚本
     SMTP_SERVICE_CONTENT="[Unit]
 Description=Custom Python SMTP Server (Receive-Only)
 After=network.target
@@ -995,7 +983,7 @@ After=network.target
 User=root
 Group=root
 WorkingDirectory=${PROJECT_DIR}
-ExecStart=${PYTHON_CMD} ${PROJECT_DIR}/app.py
+ExecStart=${PYTHON_CMD} ${PROJECT_DIR}/smtp_server.py
 Restart=always
 [Install]
 WantedBy=multi-user.target
@@ -1017,19 +1005,35 @@ WantedBy=multi-user.target
     echo "${API_SERVICE_CONTENT}" > /etc/systemd/system/mail-api.service
 
     echo -e "${GREEN}>>> 步骤 5: 替换占位符并启动服务...${NC}"
-    sed -i "s#_PLACEHOLDER_ADMIN_USERNAME_#${ADMIN_USERNAME}#g" "${PROJECT_DIR}/app.py"
-    sed -i "s#_PLACEHOLDER_ADMIN_PASSWORD_HASH_#${ADMIN_PASSWORD_HASH}#g" "${PROJECT_DIR}/app.py"
-    sed -i "s#_PLACEHOLDER_FLASK_SECRET_KEY_#${FLASK_SECRET_KEY}#g" "${PROJECT_DIR}/app.py"
-    sed -i "s#_PLACEHOLDER_SYSTEM_TITLE_#${SYSTEM_TITLE}#g" "${PROJECT_DIR}/app.py"
-    sed -i "s#_PLACEHOLDER_SENDGRID_API_KEY_#${SENDGRID_API_KEY}#g" "${PROJECT_DIR}/app.py"
-    sed -i "s#_PLACEHOLDER_DEFAULT_SENDER_#${DEFAULT_SENDER}#g" "${PROJECT_DIR}/app.py"
-    sed -i "s#_PLACEHOLDER_SERVER_IP_#${PUBLIC_IP}#g" "${PROJECT_DIR}/app.py"
-    sed -i "s#_PLACEHOLDER_TLS_DOMAIN_#${TLS_DOMAIN}#g" "${PROJECT_DIR}/app.py"
+    # BUG FIX: Escape variables to handle special characters in sed
+    ADMIN_USERNAME_SAFE=$(echo "$ADMIN_USERNAME" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
+    ADMIN_PASSWORD_HASH_SAFE=$(echo "$ADMIN_PASSWORD_HASH" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
+    FLASK_SECRET_KEY_SAFE=$(echo "$FLASK_SECRET_KEY" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
+    SYSTEM_TITLE_SAFE=$(echo "$SYSTEM_TITLE" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
+    # 关键逻辑修复：使用正确的变量名
+    SMTP_LOGIN_EMAIL_SAFE=$(echo "$SMTP_LOGIN_EMAIL" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
+    SMTP_API_KEY_SAFE=$(echo "$SMTP_API_KEY" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
+    DEFAULT_SENDER_EMAIL_SAFE=$(echo "$DEFAULT_SENDER_EMAIL" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
+    PUBLIC_IP_SAFE=$(echo "$PUBLIC_IP" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
 
+    sed -i "s#_PLACEHOLDER_ADMIN_USERNAME_#${ADMIN_USERNAME_SAFE}#g" "${PROJECT_DIR}/app.py"
+    sed -i "s#_PLACEHOLDER_ADMIN_PASSWORD_HASH_#${ADMIN_PASSWORD_HASH_SAFE}#g" "${PROJECT_DIR}/app.py"
+    sed -i "s#_PLACEHOLDER_FLASK_SECRET_KEY_#${FLASK_SECRET_KEY_SAFE}#g" "${PROJECT_DIR}/app.py"
+    sed -i "s#_PLACEHOLDER_SYSTEM_TITLE_#${SYSTEM_TITLE_SAFE}#g" "${PROJECT_DIR}/app.py"
+    # 关键逻辑修复：使用修正后的安全变量进行替换
+    sed -i "s#_PLACEHOLDER_SMTP_USERNAME_#${SMTP_LOGIN_EMAIL_SAFE}#g" "${PROJECT_DIR}/app.py"
+    sed -i "s#_PLACEHOLDER_SMTP_PASSWORD_#${SMTP_API_KEY_SAFE}#g" "${PROJECT_DIR}/app.py"
+    sed -i "s#_PLACEHOLDER_DEFAULT_SENDER_#${DEFAULT_SENDER_EMAIL_SAFE}#g" "${PROJECT_DIR}/app.py"
+    sed -i "s#_PLACEHOLDER_SERVER_IP_#${PUBLIC_IP_SAFE}#g" "${PROJECT_DIR}/app.py"
+    
+    # 初始化数据库
     $PYTHON_CMD -c "from app import init_db; init_db()"
+    
     systemctl daemon-reload
-    systemctl restart mail-smtp.service mail-api.service
-    systemctl enable mail-smtp.service mail-api.service
+    systemctl restart mail-api.service
+    systemctl restart mail-smtp.service
+    systemctl enable mail-api.service
+    systemctl enable mail-smtp.service
 
     echo "================================================================"
     echo -e "${GREEN}🎉 恭喜！邮件服务器核心服务安装/更新完成！ 🎉${NC}"
@@ -1038,8 +1042,9 @@ WantedBy=multi-user.target
     echo -e "您的网页版登录地址是："
     echo -e "${YELLOW}http://${PUBLIC_IP}:${WEB_PORT}${NC}"
     echo ""
-    if [ "$IS_UPDATE" = false ] && { [ -z "$SENDGRID_API_KEY" ] || [ -z "$DEFAULT_SENDER" ]; }; then
-        echo -e "${YELLOW}提醒：您未在安装时提供完整的SendGrid发件信息。${NC}"
+    # 关键逻辑修复：在提醒信息中使用正确的变量
+    if [ "$IS_UPDATE" = false ] && { [ -z "$SMTP_LOGIN_EMAIL" ] || [ -z "$SMTP_API_KEY" ] || [ -z "$DEFAULT_SENDER_EMAIL" ]; }; then
+        echo -e "${YELLOW}提醒：您未在安装时提供完整的Brevo发件信息。${NC}"
         echo -e "发信功能暂时无法使用。请稍后手动编辑 ${PROJECT_DIR}/app.py 文件或重新运行安装程序。 "
     fi
     echo "================================================================"
@@ -1047,7 +1052,7 @@ WantedBy=multi-user.target
 
 # --- 主逻辑 ---
 clear
-echo -e "${BLUE}轻量级邮件服务器一键脚本 (智能API终极版)${NC}"
+echo -e "${BLUE}小龙女她爸邮局服务系统一键安装脚本${NC}"
 echo "=============================================================="
 echo "请选择要执行的操作:"
 echo "1) 安装或更新邮件服务器核心服务"
