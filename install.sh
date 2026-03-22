@@ -1,11 +1,10 @@
-
 #!/bin/bash
 # =================================================================================
-# 小龙女她爸邮局服务系统一键安装脚本 (最终决定版)
+# 小龙女她爸邮局服务系统一键安装脚本 (最终版)
 #
 # 作者: 小龙女她爸
 # 日期: 2025-08-22
-# 版本: 3.2 (增强反垃圾邮件逻辑)
+# 版本: 3.3 (支持 MailCode / 时间过滤验证码)
 # =================================================================================
 
 # --- 颜色定义 ---
@@ -45,7 +44,6 @@ handle_apt_locks() {
     dpkg --configure -a
     echo -e "${GREEN}>>> APT环境已清理完毕。${NC}"
 }
-
 
 # --- 卸载功能 ---
 uninstall_server() {
@@ -95,7 +93,7 @@ setup_caddy_reverse_proxy() {
         echo -e "${RED}错误：邮箱地址不能为空。${NC}"
         exit 1
     fi
-    
+
     WEB_PORT=$(grep -oP '0.0.0.0:\K[0-9]+' /etc/systemd/system/mail-api.service 2>/dev/null || echo "2099")
     read -p "请确认您的邮件服务Web后台端口 [默认为 ${WEB_PORT}]: " USER_WEB_PORT
     WEB_PORT=${USER_WEB_PORT:-${WEB_PORT}}
@@ -106,10 +104,10 @@ setup_caddy_reverse_proxy() {
     reverse_proxy 127.0.0.1:${WEB_PORT}
     tls ${LETSENCRYPT_EMAIL}
 }"
-    
+
     mkdir -p /etc/caddy/conf.d/
     echo "${CADDYFILE_CONTENT}" > /etc/caddy/conf.d/mail_server.caddy
-    
+
     if ! grep -q "import /etc/caddy/conf.d/\*.caddy" /etc/caddy/Caddyfile; then
         echo -e "\nimport /etc/caddy/conf.d/*.caddy" >> /etc/caddy/Caddyfile
     fi
@@ -119,7 +117,7 @@ setup_caddy_reverse_proxy() {
         systemctl start caddy
     fi
     systemctl reload caddy
-    
+
     echo "================================================================"
     echo -e "${GREEN}🎉 恭喜！Caddy 反向代理配置完成！ 🎉${NC}"
     echo "================================================================"
@@ -132,7 +130,6 @@ setup_caddy_reverse_proxy() {
     exit 0
 }
 
-
 # --- 安装/更新功能 ---
 install_server() {
     if [ -f "${PROJECT_DIR}/app.py" ]; then
@@ -141,10 +138,12 @@ install_server() {
         EXISTING_TITLE=$(grep -oP "SYSTEM_TITLE = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null || echo "轻量级邮件服务器")
         EXISTING_PORT=$(grep -oP '0.0.0.0:\K[0-9]+' /etc/systemd/system/mail-api.service 2>/dev/null || echo "2099")
         EXISTING_ADMIN=$(grep -oP "ADMIN_USERNAME = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null || echo "admin")
-        
+        EXISTING_SPECIAL_TOKEN=$(grep -oP "SPECIAL_VIEW_TOKEN = \"\K[^\"]+" ${PROJECT_DIR}/app.py 2>/dev/null || echo "2088")
+
         KEY_PROMPT="请输入您的 Brevo SMTP 密钥(API v3 Key) (留空则使用旧值): "
         LOGIN_EMAIL_PROMPT="请输入您的 Brevo 账户登录邮箱 (留空则使用旧值): "
         SENDER_EMAIL_PROMPT="请输入您在Brevo验证过的默认发件人邮箱 (留空则使用旧值): "
+        TOKEN_PROMPT="请输入邮件查看Token (留空则使用旧值: ${EXISTING_SPECIAL_TOKEN}): "
         PW_PROMPT="请为管理员账户 '${EXISTING_ADMIN}' 设置登录密码 (留空则不修改): "
     else
         IS_UPDATE=false
@@ -152,10 +151,12 @@ install_server() {
         EXISTING_TITLE="小龙女她爸邮局服务系统"
         EXISTING_PORT="2099"
         EXISTING_ADMIN="admin"
-        
+        EXISTING_SPECIAL_TOKEN="2088"
+
         KEY_PROMPT="请输入您的 Brevo SMTP 密钥(API v3 Key) (可留空): "
         LOGIN_EMAIL_PROMPT="请输入您的 Brevo 账户登录邮箱 (可留空): "
         SENDER_EMAIL_PROMPT="请输入您在Brevo验证过的默认发件人邮箱 (可留空): "
+        TOKEN_PROMPT="请输入邮件查看Token [默认为 2088]: "
         PW_PROMPT="请为管理员账户 'admin' 设置一个复杂的登录密码: "
     fi
 
@@ -186,12 +187,17 @@ install_server() {
     echo "--- 管理员账户设置 ---"
     read -p "请输入管理员登录名 [默认为: ${EXISTING_ADMIN}]: " ADMIN_USERNAME
     ADMIN_USERNAME=${ADMIN_USERNAME:-${EXISTING_ADMIN}}
-    
+
     read -sp "$PW_PROMPT" ADMIN_PASSWORD
     echo
-    
+
+    read -p "$TOKEN_PROMPT" SPECIAL_VIEW_TOKEN
+    if [ -z "$SPECIAL_VIEW_TOKEN" ]; then
+        SPECIAL_VIEW_TOKEN=${EXISTING_SPECIAL_TOKEN}
+    fi
+
     FLASK_SECRET_KEY=$(openssl rand -hex 24)
-    
+
     echo -e "${BLUE}>>> 正在获取服务器公网IP...${NC}"
     PUBLIC_IP=$(curl -s icanhazip.com || echo "127.0.0.1")
     if [ -z "$PUBLIC_IP" ]; then
@@ -205,19 +211,19 @@ install_server() {
     apt-get update
     apt-get -y upgrade
     apt-get -y install python3-pip python3-venv ufw curl
-    
+
     echo -e "${GREEN}>>> 步骤 2: 创建应用程序目录和虚拟环境...${NC}"
     mkdir -p $PROJECT_DIR
     cd $PROJECT_DIR
     python3 -m venv venv
-    
+
     PIP_CMD="${PROJECT_DIR}/venv/bin/pip"
     PYTHON_CMD="${PROJECT_DIR}/venv/bin/python3"
     PYTHON_VERSION=$($PYTHON_CMD -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-    
+
     echo -e "${BLUE}>>> Python 版本为 ${PYTHON_VERSION}。正在安装依赖...${NC}"
     $PIP_CMD install flask gunicorn aiosmtpd werkzeug
-    
+
     if [[ $(echo "$PYTHON_VERSION < 3.9" | bc -l 2>/dev/null) -eq 1 ]]; then
         echo -e "${YELLOW}>>> 检测到 Python 版本低于 3.9，正在安装 zoneinfo 兼容包...${NC}"
         $PIP_CMD install 'backports.zoneinfo; python_version < "3.9"'
@@ -239,7 +245,7 @@ install_server() {
             exit 1
         fi
     fi
-    
+
     echo -e "${GREEN}>>> 步骤 3: 写入核心Web应用代码 (app.py)...${NC}"
     cat << 'EOF' > ${PROJECT_DIR}/app.py
 # -*- coding: utf-8 -*-
@@ -257,6 +263,8 @@ try:
 except ImportError:
     from backports.zoneinfo import ZoneInfo
 from werkzeug.security import check_password_hash, generate_password_hash
+import asyncio
+from aiosmtpd.controller import Controller
 
 DB_FILE = 'emails.db'
 EMAILS_PER_PAGE = 50
@@ -266,7 +274,7 @@ EMAILS_TO_KEEP = 1000
 ADMIN_USERNAME = "_PLACEHOLDER_ADMIN_USERNAME_"
 ADMIN_PASSWORD_HASH = "_PLACEHOLDER_ADMIN_PASSWORD_HASH_"
 SYSTEM_TITLE = "_PLACEHOLDER_SYSTEM_TITLE_"
-SPECIAL_VIEW_TOKEN = "2088"
+SPECIAL_VIEW_TOKEN = "_PLACEHOLDER_SPECIAL_VIEW_TOKEN_"
 SERVER_PUBLIC_IP = "_PLACEHOLDER_SERVER_IP_"
 
 app = Flask(__name__)
@@ -289,6 +297,7 @@ def get_db_conn():
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
+
 def init_db():
     conn = get_db_conn()
     c = conn.cursor()
@@ -302,30 +311,39 @@ def init_db():
         cursor.execute("ALTER TABLE received_emails ADD COLUMN is_read BOOLEAN DEFAULT 0")
         conn.commit()
     conn.close()
+
 def run_cleanup_if_needed():
     now = datetime.now()
     if os.path.exists(LAST_CLEANUP_FILE):
         try:
             with open(LAST_CLEANUP_FILE, 'r') as f:
                 last_cleanup_time = datetime.fromisoformat(f.read().strip())
-            if now - last_cleanup_time < timedelta(days=CLEANUP_INTERVAL_DAYS): return
+            if now - last_cleanup_time < timedelta(days=CLEANUP_INTERVAL_DAYS):
+                return
         except Exception:
             pass
-    app.logger.info(f"开始执行定时邮件清理任务...")
+    app.logger.info("开始执行定时邮件清理任务...")
     conn = get_db_conn()
-    deleted_count = conn.execute(f"DELETE FROM received_emails WHERE id NOT IN (SELECT id FROM received_emails ORDER BY id DESC LIMIT {EMAILS_TO_KEEP})").rowcount
+    deleted_count = conn.execute(
+        f"DELETE FROM received_emails WHERE id NOT IN (SELECT id FROM received_emails ORDER BY id DESC LIMIT {EMAILS_TO_KEEP})"
+    ).rowcount
     conn.commit()
     conn.close()
-    if deleted_count > 0: app.logger.info(f"清理完成，成功删除了 {deleted_count} 封旧邮件。")
-    with open(LAST_CLEANUP_FILE, 'w') as f: f.write(now.isoformat())
+    if deleted_count > 0:
+        app.logger.info(f"清理完成，成功删除了 {deleted_count} 封旧邮件。")
+    with open(LAST_CLEANUP_FILE, 'w') as f:
+        f.write(now.isoformat())
+
 def process_email_data(to_address, raw_email_data):
     msg = message_from_bytes(raw_email_data)
-    
+
     subject = ""
     if msg['Subject']:
         subject_raw, encoding = decode_header(msg['Subject'])[0]
-        if isinstance(subject_raw, bytes): subject = subject_raw.decode(encoding or 'utf-8', errors='ignore')
-        else: subject = str(subject_raw)
+        if isinstance(subject_raw, bytes):
+            subject = subject_raw.decode(encoding or 'utf-8', errors='ignore')
+        else:
+            subject = str(subject_raw)
     subject = subject.strip()
 
     # --- 增强版反垃圾邮件逻辑 ---
@@ -338,14 +356,13 @@ def process_email_data(to_address, raw_email_data):
             return
 
     for keyword in spam_keywords:
-        # 使用正则表达式进行更灵活的匹配
         if re.search(keyword, subject_lower):
             app.logger.warning(f"SPAM REJECTED: Subject contains keyword '{keyword}'. From: {msg.get('From')}, Subject: '{subject}'")
             return
-    # --- 判断结束 ---
 
-    app.logger.info("="*20 + " 开始处理一封新邮件 " + "="*20)
+    app.logger.info("=" * 20 + " 开始处理一封新邮件 " + "=" * 20)
     app.logger.info(f"SMTP信封接收地址: {to_address}")
+
     final_recipient = None
     recipient_headers_to_check = ['Delivered-To', 'X-Original-To', 'X-Forwarded-To', 'To']
     for header_name in recipient_headers_to_check:
@@ -353,9 +370,11 @@ def process_email_data(to_address, raw_email_data):
         if header_value:
             _, recipient_addr = parseaddr(header_value)
             if recipient_addr and '@' in recipient_addr:
-                final_recipient = recipient_addr
+                final_recipient = recipient_addr.strip()
                 break
-    if not final_recipient: final_recipient = to_address
+    if not final_recipient:
+        final_recipient = str(to_address).strip()
+
     final_sender = None
     icloud_hme_header = msg.get('X-ICLOUD-HME')
     if icloud_hme_header:
@@ -363,59 +382,142 @@ def process_email_data(to_address, raw_email_data):
         if match:
             final_sender = match.group(1)
             app.logger.info(f"在 'X-ICLOUD-HME' 头中找到真实发件人: {final_sender}")
+
     if not final_sender:
         reply_to_header = msg.get('Reply-To', '')
         from_header = msg.get('From', '')
         _, reply_to_addr = parseaddr(reply_to_header)
         _, from_addr = parseaddr(from_header)
-        if reply_to_addr and '@' in reply_to_addr: final_sender = reply_to_addr
-        elif from_addr and '@' in from_addr: final_sender = from_addr
-    if not final_sender: final_sender = "unknown@sender.com"
+        if reply_to_addr and '@' in reply_to_addr:
+            final_sender = reply_to_addr
+        elif from_addr and '@' in from_addr:
+            final_sender = from_addr
+
+    if not final_sender:
+        final_sender = "unknown@sender.com"
+
     app.logger.info(f"最终解析结果: 发件人 -> {final_sender}, 收件人 -> {final_recipient}")
-    
+
     body, body_type = "", "text/plain"
     if msg.is_multipart():
         for part in msg.walk():
             if part.get_content_type() == 'text/html':
-                body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore'); body_type="text/html"; break
+                body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore')
+                body_type = "text/html"
+                break
             elif part.get_content_type() == 'text/plain':
-                body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore'); body_type="text/plain"
+                body = part.get_payload(decode=True).decode(part.get_content_charset() or 'utf-8', errors='ignore')
+                body_type = "text/plain"
     else:
         body_type = msg.get_content_type()
         body = msg.get_payload(decode=True).decode(msg.get_content_charset() or 'utf-8', errors='ignore')
+
     conn = get_db_conn()
-    conn.execute("INSERT INTO received_emails (recipient, sender, subject, body, body_type) VALUES (?, ?, ?, ?, ?)",
-                 (final_recipient, final_sender, subject, body, body_type))
+    conn.execute(
+        "INSERT INTO received_emails (recipient, sender, subject, body, body_type) VALUES (?, ?, ?, ?, ?)",
+        (final_recipient, final_sender, subject, body, body_type)
+    )
     conn.commit()
     conn.close()
-    app.logger.info(f"邮件已存入数据库")
+    app.logger.info("邮件已存入数据库")
     run_cleanup_if_needed()
+
 def extract_code_from_body(body_text):
-    if not body_text: return None
-    code_keywords = ['verification code', '验证码', '驗證碼', '検証コード', 'authentication code', 'your code is']
+    if not body_text:
+        return None
+
+    body_text = str(body_text)
     body_lower = body_text.lower()
-    if not any(keyword in body_lower for keyword in code_keywords): return None
-    match_specific = re.search(r'[^0-9A-Za-z](\d{6})[^0-9A-Za-z]', " " + body_text + " ")
-    if match_specific: return match_specific.group(1)
-    match_general = re.search(r'\b(\d{4,8})\b', body_text)
-    if match_general: return match_general.group(1)
+
+    code_keywords = [
+        'verification code', '验证码', '驗證碼', '検証コード',
+        'authentication code', 'your code is',
+        'chatgpt code', 'temporary verification code',
+        'enter this temporary verification code',
+        'log-in code', 'login code', 'one-time password', 'otp'
+    ]
+
+    if any(keyword in body_lower for keyword in code_keywords):
+        semantic_patterns = [
+            r'(?:your\s+chatgpt\s+code\s+is|your\s+code\s+is|verification\s+code|temporary\s+verification\s+code|authentication\s+code|log-?in\s+code|login\s+code|otp)[^\d]{0,30}(\d{6})',
+        ]
+        for pat in semantic_patterns:
+            m = re.search(pat, body_text, re.IGNORECASE)
+            if m:
+                return m.group(1)
+
+    m = re.search(r'(?<!\d)(\d{6})(?!\d)', body_text)
+    if m:
+        return m.group(1)
+
+    m = re.search(r'\b(\d{4,8})\b', body_text)
+    if m:
+        return m.group(1)
+
     return None
+
 def strip_tags_for_preview(html_content):
-    if not html_content: return ""
+    if not html_content:
+        return ""
     text_content = re.sub(r'<style.*?</style>|<script.*?</script>|<[^>]+>', ' ', html_content, flags=re.S)
     return re.sub(r'\s+', ' ', text_content).strip()
+
+def parse_request_timestamp(value):
+    """
+    支持：
+    - 秒级时间戳
+    - 毫秒级时间戳
+    - ISO 时间字符串
+    返回 UTC datetime，失败返回 None
+    """
+    if value is None or value == "":
+        return None
+    try:
+        if isinstance(value, (int, float)) or str(value).strip().replace('.', '', 1).isdigit():
+            ts = float(value)
+            if ts > 1e12:
+                ts = ts / 1000.0
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+
+        text = str(value).strip().replace("Z", "+00:00")
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+def row_timestamp_to_utc(row_ts):
+    if not row_ts:
+        return None
+    try:
+        text = str(row_ts).strip().replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(text)
+        except Exception:
+            dt = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user_email' not in session: return redirect(url_for('login', next=request.url))
+        if 'user_email' not in session:
+            return redirect(url_for('login', next=request.url))
         return f(*args, **kwargs)
     return decorated_function
+
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('is_admin'): return redirect(url_for('login'))
+        if not session.get('is_admin'):
+            return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
 @app.route('/api/unread_count')
 @login_required
 def unread_count():
@@ -426,10 +528,12 @@ def unread_count():
         count = conn.execute("SELECT COUNT(*) FROM received_emails WHERE recipient = ? AND is_read = 0", (session['user_email'],)).fetchone()[0]
     conn.close()
     return jsonify({'unread_count': count})
+
 @app.route('/')
 @login_required
 def index():
     return redirect(url_for('admin_view') if session.get('is_admin') else url_for('view_emails'))
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -468,9 +572,12 @@ def login():
         <label for="password">密码:</label><input type="password" name="password" required>
         <input type="submit" value="登录"></form></div></body></html>
     ''', SYSTEM_TITLE=SYSTEM_TITLE)
+
 @app.route('/logout')
 def logout():
-    session.clear(); return redirect(url_for('login'))
+    session.clear()
+    return redirect(url_for('login'))
+
 def send_email_via_smtp(to_address, subject, body):
     if not SMTP_USERNAME or not SMTP_PASSWORD or not DEFAULT_SENDER:
         return False, "发件功能未配置(缺少SMTP用户名、密码或发件人地址)。"
@@ -488,6 +595,7 @@ def send_email_via_smtp(to_address, subject, body):
     except Exception as e:
         app.logger.error(f"通过 SMTP 发送邮件失败: {e}")
         return False, f"邮件发送失败: {e}"
+
 @app.route('/compose', methods=['GET', 'POST'])
 @login_required
 def compose_email():
@@ -500,7 +608,7 @@ def compose_email():
         to_address = request.form.get('to')
         subject = request.form.get('subject')
         body = request.form.get('body')
-        
+
         if not to_address or not subject:
             flash('收件人和主题不能为空！', 'error')
             form_data = {'to': to_address, 'subject': subject, 'body': body}
@@ -521,7 +629,7 @@ def compose_email():
             if not session.get('is_admin'):
                 query += " AND recipient = ?"
                 params.append(session['user_email'])
-            
+
             original_email = conn.execute(query, params).fetchone()
             conn.close()
 
@@ -538,10 +646,10 @@ def compose_email():
                 beijing_tz = ZoneInfo("Asia/Shanghai")
                 utc_dt = datetime.strptime(original_email['timestamp'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
                 bjt_str = utc_dt.astimezone(beijing_tz).strftime('%Y-%m-%d %H:%M:%S')
-                
+
                 body_content = strip_tags_for_preview(original_email['body'] or '')
-                quoted_text = "\\n".join([f"> {line}" for line in body_content.splitlines()])
-                form_data['body'] = f"\\n\\n\\n--- On {bjt_str}, {original_email['sender']} wrote: ---\\n{quoted_text}"
+                quoted_text = "\n".join([f"> {line}" for line in body_content.splitlines()])
+                form_data['body'] = f"\n\n\n--- On {bjt_str}, {original_email['sender']} wrote: ---\n{quoted_text}"
         except Exception as e:
             app.logger.error(f"加载回复邮件时出错: {e}")
             flash("加载原始邮件以供回复时出错。", 'error')
@@ -587,6 +695,7 @@ def compose_email():
         </form>
         </div></body></html>
     ''', SYSTEM_TITLE=SYSTEM_TITLE, from_email=DEFAULT_SENDER, form_data=form_data)
+
 def render_email_list_page(emails_data, page, total_pages, total_emails, search_query, is_admin_view, token_view_context=None):
     if token_view_context:
         endpoint = 'view_mail_by_token'
@@ -594,7 +703,7 @@ def render_email_list_page(emails_data, page, total_pages, total_emails, search_
     else:
         endpoint = 'admin_view' if is_admin_view else 'view_emails'
         title_text = f"管理员视图 (共 {total_emails} 封)" if is_admin_view else f"收件箱 ({session.get('user_email', '')} - 共 {total_emails} 封)"
-    
+
     processed_emails = []
     beijing_tz = ZoneInfo("Asia/Shanghai")
     sending_enabled = bool(SMTP_USERNAME and SMTP_PASSWORD and DEFAULT_SENDER)
@@ -724,21 +833,24 @@ def render_email_list_page(emails_data, page, total_pages, total_emails, search_
                     setTimeout(function() {
                         message.style.opacity = '0';
                         setTimeout(function() { message.style.display = 'none'; }, 500);
-                    }, 5000); // 5 seconds
+                    }, 5000);
                 });
             });
         </script>
         </body></html>
     ''', title=title_text, mails=processed_emails, page=page, total_pages=total_pages, search_query=search_query, is_admin_view=is_admin_view, endpoint=endpoint, SYSTEM_TITLE=SYSTEM_TITLE, token_view_context=token_view_context, sending_enabled=sending_enabled)
+
 @app.route('/view')
 @login_required
 def view_emails():
     return base_view_logic(is_admin_view=False)
+
 @app.route('/admin')
 @login_required
 @admin_required
 def admin_view():
     return base_view_logic(is_admin_view=True)
+
 def base_view_logic(is_admin_view, mark_as_read=True, recipient_override=None):
     search_query = request.args.get('search', '').strip()
     page = request.args.get('page', 1, type=int)
@@ -747,14 +859,22 @@ def base_view_logic(is_admin_view, mark_as_read=True, recipient_override=None):
     token_context = None
     if recipient_override:
         is_admin_view = False
-        where_clauses.append("recipient = ?"); params.append(recipient_override)
-        if search_query: where_clauses.append("(subject LIKE ? OR sender LIKE ?)"); params.extend([f"%{search_query}%"]*2)
+        where_clauses.append("recipient = ?")
+        params.append(recipient_override)
+        if search_query:
+            where_clauses.append("(subject LIKE ? OR sender LIKE ?)")
+            params.extend([f"%{search_query}%"] * 2)
         token_context = {'token': request.args.get('token'), 'mail': recipient_override}
     elif is_admin_view:
-        if search_query: where_clauses.append("(subject LIKE ? OR recipient LIKE ? OR sender LIKE ?)"); params.extend([f"%{search_query}%"]*3)
+        if search_query:
+            where_clauses.append("(subject LIKE ? OR recipient LIKE ? OR sender LIKE ?)")
+            params.extend([f"%{search_query}%"] * 3)
     else:
-        where_clauses.append("recipient = ?"); params.append(session['user_email'])
-        if search_query: where_clauses.append("(subject LIKE ? OR sender LIKE ?)"); params.extend([f"%{search_query}%"]*2)
+        where_clauses.append("recipient = ?")
+        params.append(session['user_email'])
+        if search_query:
+            where_clauses.append("(subject LIKE ? OR sender LIKE ?)")
+            params.extend([f"%{search_query}%"] * 2)
     where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
     total_emails = conn.execute(f"SELECT COUNT(*) FROM received_emails {where_sql}", params).fetchone()[0]
     total_pages = math.ceil(total_emails / EMAILS_PER_PAGE) if total_emails > 0 else 1
@@ -767,23 +887,115 @@ def base_view_logic(is_admin_view, mark_as_read=True, recipient_override=None):
             conn.commit()
     conn.close()
     return render_email_list_page(emails_data, page, total_pages, total_emails, search_query, is_admin_view, token_view_context=token_context)
+
+# ----------------- 兼容旧脚本：原 /Mail 接口 -----------------
 @app.route('/Mail')
 def view_mail_by_token():
     token = request.args.get('token')
     recipient_mail = request.args.get('mail')
-    if not token or token != SPECIAL_VIEW_TOKEN: return jsonify({"error": "Invalid token"}), 401
-    if not recipient_mail: return jsonify({"error": "mail parameter is missing"}), 400
-    subject_keywords = ["verify your email address", "验证您的电子邮件地址", "e メールアドレスを検証してください", "verification code"]
+
+    if not token or token != SPECIAL_VIEW_TOKEN:
+        return jsonify({"error": "Invalid token"}), 401
+    if not recipient_mail:
+        return jsonify({"error": "mail parameter is missing"}), 400
+
+    old_keywords = ["verify your email address", "验证您的电子邮件地址", "e メールアドレスを検証してください", "verification code"]
+    new_keywords = ["chatgpt", "openai"]
+
     conn = get_db_conn()
     try:
-        messages = conn.execute("SELECT id, subject, body, body_type FROM received_emails WHERE recipient = ? ORDER BY id DESC LIMIT 50", (recipient_mail,)).fetchall()
+        messages = conn.execute("""
+            SELECT id, subject, body, body_type
+            FROM received_emails
+            WHERE lower(trim(recipient)) = lower(trim(?))
+            ORDER BY id DESC
+            LIMIT 50
+        """, (recipient_mail,)).fetchall()
+
         for msg in messages:
             subject = (msg['subject'] or "").lower().strip()
-            if any(subject.startswith(keyword) for keyword in subject_keywords):
+            body = (msg['body'] or "").lower()
+
+            match_old = any(subject.startswith(k) for k in old_keywords)
+            match_new = any(k in subject for k in new_keywords) or any(k in body for k in new_keywords)
+
+            if match_old or match_new:
                 return Response(msg['body'], mimetype=f"{msg['body_type'] or 'text/html'}; charset=utf-8")
+
         return jsonify({"error": "Verification email not found"}), 404
     finally:
-        if conn: conn.close()
+        if conn:
+            conn.close()
+
+# ----------------- 新接口：返回最新验证码 JSON，支持时间过滤 -----------------
+@app.route('/MailCode')
+def view_mail_code_by_token():
+    token = request.args.get('token')
+    recipient_mail = request.args.get('mail')
+    after = request.args.get('after') or request.args.get('min_ts') or request.args.get('otp_sent_at')
+
+    if not token or token != SPECIAL_VIEW_TOKEN:
+        return jsonify({"error": "Invalid token"}), 401
+    if not recipient_mail:
+        return jsonify({"error": "mail parameter is missing"}), 400
+
+    after_dt = parse_request_timestamp(after)
+
+    conn = get_db_conn()
+    try:
+        messages = conn.execute("""
+            SELECT id, recipient, sender, subject, body, body_type, timestamp
+            FROM received_emails
+            WHERE lower(trim(recipient)) = lower(trim(?))
+            ORDER BY id DESC
+            LIMIT 100
+        """, (recipient_mail,)).fetchall()
+
+        for msg in messages:
+            sender = (msg['sender'] or "").lower().strip()
+            subject = (msg['subject'] or "").strip()
+            body = msg['body'] or ""
+            body_type = msg['body_type'] or "text/plain"
+            ts = row_timestamp_to_utc(msg['timestamp'])
+
+            if after_dt and ts:
+                if ts < (after_dt - timedelta(seconds=1)):
+                    continue
+
+            preview_text = strip_tags_for_preview(body)
+            combined_text = f"{subject}\n{preview_text}"
+
+            looks_like_openai = (
+                "openai" in sender
+                or "chatgpt" in combined_text.lower()
+                or "verification code" in combined_text.lower()
+                or "temporary verification code" in combined_text.lower()
+                or "log-in code" in combined_text.lower()
+                or "login code" in combined_text.lower()
+                or "your code is" in combined_text.lower()
+            )
+            if not looks_like_openai:
+                continue
+
+            code = extract_code_from_body(subject) or extract_code_from_body(preview_text)
+            if not code:
+                continue
+
+            return jsonify({
+                "id": msg["id"],
+                "recipient": msg["recipient"],
+                "sender": msg["sender"],
+                "subject": msg["subject"],
+                "timestamp": msg["timestamp"],
+                "body_type": body_type,
+                "code": code
+            })
+
+        return jsonify({"error": "Verification email not found"}), 404
+    finally:
+        if conn:
+            conn.close()
+
 @app.route('/delete_selected_emails', methods=['POST'])
 @login_required
 @admin_required
@@ -797,8 +1009,10 @@ def delete_selected_emails():
             conn.execute(query, selected_ids)
             conn.commit()
         finally:
-            if conn: conn.close()
+            if conn:
+                conn.close()
     return redirect(request.referrer or url_for('admin_view'))
+
 @app.route('/delete_all_emails', methods=['POST'])
 @login_required
 @admin_required
@@ -808,8 +1022,10 @@ def delete_all_emails():
         conn.execute("DELETE FROM received_emails")
         conn.commit()
     finally:
-        if conn: conn.close()
+        if conn:
+            conn.close()
     return redirect(url_for('admin_view'))
+
 @app.route('/view_email/<int:email_id>')
 @login_required
 def view_email_detail(email_id):
@@ -818,36 +1034,36 @@ def view_email_detail(email_id):
         email = conn.execute("SELECT * FROM received_emails WHERE id = ?", (email_id,)).fetchone()
     else:
         email = conn.execute("SELECT * FROM received_emails WHERE id = ? AND recipient = ?", (email_id, session['user_email'])).fetchone()
-        
+
     if not email:
         conn.close()
         return "邮件未找到或无权查看", 404
 
     if not email['is_read']:
-        conn.execute("UPDATE received_emails SET is_read = 1 WHERE id = ?", (email_id,)); conn.commit()
+        conn.execute("UPDATE received_emails SET is_read = 1 WHERE id = ?", (email_id,))
+        conn.commit()
     conn.close()
-    
-    # --- 决定性修复：采用直接返回Response的方案 ---
+
     body_content = email['body'] or ''
     body_type = email['body_type'] or 'text/plain'
     if 'text/html' in body_type:
-        # 对于HTML邮件，直接返回内容，让浏览器渲染
         return Response(body_content, mimetype='text/html; charset=utf-8')
     else:
-        # 对于纯文本，使用<pre>标签以保留格式
         escaped_content = escape(body_content)
         html_response = f'<!DOCTYPE html><html><head><title>Email</title></head><body style="font-family: monospace; white-space: pre-wrap;">{escaped_content}</body></html>'
         return Response(html_response, mimetype='text/html; charset=utf-8')
+
 @app.route('/view_email_token/<int:email_id>')
 def view_email_token_detail(email_id):
     token = request.args.get('token')
-    if token != SPECIAL_VIEW_TOKEN: return "无效的Token", 403
+    if token != SPECIAL_VIEW_TOKEN:
+        return "无效的Token", 403
     conn = get_db_conn()
     email = conn.execute("SELECT * FROM received_emails WHERE id = ?", (email_id,)).fetchone()
     conn.close()
-    if not email: return "邮件未找到", 404
-    
-    # --- 统一逻辑：同样直接返回Response ---
+    if not email:
+        return "邮件未找到", 404
+
     body_content = email['body'] or ''
     body_type = email['body_type'] or 'text/plain'
     return Response(body_content, mimetype=f'{body_type}; charset=utf-8')
@@ -864,12 +1080,15 @@ def manage_users():
             if email and password:
                 try:
                     conn.execute("INSERT INTO users (email, password_hash) VALUES (?, ?)", (email, generate_password_hash(password)))
-                    conn.commit(); flash(f"用户 {email} 添加成功", 'success')
+                    conn.commit()
+                    flash(f"用户 {email} 添加成功", 'success')
                 except sqlite3.IntegrityError:
                     flash(f"用户 {email} 已存在", 'error')
         elif action == 'delete':
             user_id = request.form.get('user_id')
-            conn.execute("DELETE FROM users WHERE id = ? AND email != ?", (user_id, ADMIN_USERNAME)); conn.commit(); flash("用户已删除", 'success')
+            conn.execute("DELETE FROM users WHERE id = ? AND email != ?", (user_id, ADMIN_USERNAME))
+            conn.commit()
+            flash("用户已删除", 'success')
     users = conn.execute("SELECT id, email FROM users WHERE email != ?", (ADMIN_USERNAME,)).fetchall()
     conn.close()
     return render_template_string('''
@@ -949,12 +1168,12 @@ class CustomSMTPHandler:
 def main():
     # 启动前，确保数据库已初始化
     init_db()
-    
+
     # 启动SMTP控制器
     controller = Controller(CustomSMTPHandler(), hostname='0.0.0.0', port=25)
     controller.start()
     logging.info("SMTP服务已启动，正在监听25端口...")
-    
+
     try:
         # 永久运行，直到进程被终止
         asyncio.get_event_loop().run_forever()
@@ -976,7 +1195,6 @@ EOF
     ufw allow ${WEB_PORT}/tcp
     ufw --force enable
 
-    # 修复：让SMTP服务执行新的独立脚本
     SMTP_SERVICE_CONTENT="[Unit]
 Description=Custom Python SMTP Server (Receive-Only)
 After=network.target
@@ -1006,12 +1224,11 @@ WantedBy=multi-user.target
     echo "${API_SERVICE_CONTENT}" > /etc/systemd/system/mail-api.service
 
     echo -e "${GREEN}>>> 步骤 5: 替换占位符并启动服务...${NC}"
-    # BUG FIX: Escape variables to handle special characters in sed
     ADMIN_USERNAME_SAFE=$(echo "$ADMIN_USERNAME" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
     ADMIN_PASSWORD_HASH_SAFE=$(echo "$ADMIN_PASSWORD_HASH" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
     FLASK_SECRET_KEY_SAFE=$(echo "$FLASK_SECRET_KEY" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
     SYSTEM_TITLE_SAFE=$(echo "$SYSTEM_TITLE" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
-    # 关键逻辑修复：使用正确的变量名
+    SPECIAL_VIEW_TOKEN_SAFE=$(echo "$SPECIAL_VIEW_TOKEN" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
     SMTP_LOGIN_EMAIL_SAFE=$(echo "$SMTP_LOGIN_EMAIL" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
     SMTP_API_KEY_SAFE=$(echo "$SMTP_API_KEY" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
     DEFAULT_SENDER_EMAIL_SAFE=$(echo "$DEFAULT_SENDER_EMAIL" | sed -e 's/[&/\]/\\&/g' -e 's/#/\\#/g')
@@ -1021,15 +1238,15 @@ WantedBy=multi-user.target
     sed -i "s#_PLACEHOLDER_ADMIN_PASSWORD_HASH_#${ADMIN_PASSWORD_HASH_SAFE}#g" "${PROJECT_DIR}/app.py"
     sed -i "s#_PLACEHOLDER_FLASK_SECRET_KEY_#${FLASK_SECRET_KEY_SAFE}#g" "${PROJECT_DIR}/app.py"
     sed -i "s#_PLACEHOLDER_SYSTEM_TITLE_#${SYSTEM_TITLE_SAFE}#g" "${PROJECT_DIR}/app.py"
-    # 关键逻辑修复：使用修正后的安全变量进行替换
+    sed -i "s#_PLACEHOLDER_SPECIAL_VIEW_TOKEN_#${SPECIAL_VIEW_TOKEN_SAFE}#g" "${PROJECT_DIR}/app.py"
     sed -i "s#_PLACEHOLDER_SMTP_USERNAME_#${SMTP_LOGIN_EMAIL_SAFE}#g" "${PROJECT_DIR}/app.py"
     sed -i "s#_PLACEHOLDER_SMTP_PASSWORD_#${SMTP_API_KEY_SAFE}#g" "${PROJECT_DIR}/app.py"
     sed -i "s#_PLACEHOLDER_DEFAULT_SENDER_#${DEFAULT_SENDER_EMAIL_SAFE}#g" "${PROJECT_DIR}/app.py"
     sed -i "s#_PLACEHOLDER_SERVER_IP_#${PUBLIC_IP_SAFE}#g" "${PROJECT_DIR}/app.py"
-    
+
     # 初始化数据库
     $PYTHON_CMD -c "from app import init_db; init_db()"
-    
+
     systemctl daemon-reload
     systemctl restart mail-api.service
     systemctl restart mail-smtp.service
@@ -1043,10 +1260,11 @@ WantedBy=multi-user.target
     echo -e "您的网页版登录地址是："
     echo -e "${YELLOW}http://${PUBLIC_IP}:${WEB_PORT}${NC}"
     echo ""
-    # 关键逻辑修复：在提醒信息中使用正确的变量
+    echo -e "邮件查看Token为：${YELLOW}${SPECIAL_VIEW_TOKEN}${NC}"
+    echo ""
     if [ "$IS_UPDATE" = false ] && { [ -z "$SMTP_LOGIN_EMAIL" ] || [ -z "$SMTP_API_KEY" ] || [ -z "$DEFAULT_SENDER_EMAIL" ]; }; then
         echo -e "${YELLOW}提醒：您未在安装时提供完整的Brevo发件信息。${NC}"
-        echo -e "发信功能暂时无法使用。请稍后手动编辑 ${PROJECT_DIR}/app.py 文件或重新运行安装程序。 "
+        echo -e "发信功能暂时无法使用。请稍后手动编辑 ${PROJECT_DIR}/app.py 文件或重新运行安装程序。"
     fi
     echo "================================================================"
 }
