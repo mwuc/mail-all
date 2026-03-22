@@ -4,8 +4,12 @@ set -euo pipefail
 PROJECT_NAME="mail_api"
 PROJECT_DIR="/opt/mail_api"
 VENV_DIR="${PROJECT_DIR}/venv"
+
 APP_SOURCE="./app.py"
 APP_DEST="${PROJECT_DIR}/app.py"
+
+REPO_RAW_BASE="https://raw.githubusercontent.com/SIJULY/mail-all/main"
+APP_RAW_URL="${REPO_RAW_BASE}/app.py"
 
 SERVICE_WEB="mail-api-web.service"
 SERVICE_SMTP="mail-api-smtp.service"
@@ -23,15 +27,7 @@ err()  { echo -e "${RED}>>> $1${NC}"; }
 
 require_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        err "请使用 root 运行：sudo ./install.sh"
-        exit 1
-    fi
-}
-
-check_source_file() {
-    if [ ! -f "${APP_SOURCE}" ]; then
-        err "当前目录未找到 app.py"
-        echo "请把 install.sh 和 app.py 放在同一个目录后再执行。"
+        err "请使用 root 运行：sudo bash install.sh"
         exit 1
     fi
 }
@@ -111,6 +107,29 @@ create_project_dir() {
     mkdir -p "${PROJECT_DIR}"
 }
 
+prepare_app_source() {
+    mkdir -p "${PROJECT_DIR}"
+
+    if [ -f "${APP_SOURCE}" ]; then
+        log "检测到当前目录存在 app.py，使用本地文件。"
+        cp -f "${APP_SOURCE}" "${APP_DEST}"
+        ok "已复制本地 app.py 到 ${APP_DEST}"
+        return
+    fi
+
+    warn "当前目录未找到 app.py，尝试从 GitHub 下载..."
+    if curl -fsSL "${APP_RAW_URL}" -o "${APP_DEST}"; then
+        ok "已从 GitHub 下载 app.py 到 ${APP_DEST}"
+    else
+        err "下载 app.py 失败。"
+        echo "请检查："
+        echo "1. GitHub 仓库地址是否正确"
+        echo "2. app.py 是否在 main 分支根目录"
+        echo "3. 服务器是否能访问 raw.githubusercontent.com"
+        exit 1
+    fi
+}
+
 setup_venv() {
     log "创建 Python 虚拟环境..."
     python3 -m venv "${VENV_DIR}"
@@ -133,12 +152,6 @@ install_python_packages() {
     log "安装 Python 依赖..."
     "${VENV_DIR}/bin/pip" install -r "${PROJECT_DIR}/requirements.txt"
     ok "Python 依赖安装完成。"
-}
-
-copy_app() {
-    log "复制 app.py 到安装目录..."
-    cp -f "${APP_SOURCE}" "${APP_DEST}"
-    ok "app.py 已复制到 ${APP_DEST}"
 }
 
 generate_secret_key() {
@@ -231,17 +244,6 @@ with open(app_path, "w", encoding="utf-8") as f:
 PY
 
     ok "app.py 配置写入完成。"
-}
-
-write_web_runner() {
-    cat > "${PROJECT_DIR}/web_runner.py" <<EOF
-from app import app, init_db
-
-init_db()
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=${WEB_PORT})
-EOF
 }
 
 write_smtp_runner() {
@@ -418,8 +420,8 @@ collect_inputs() {
         break
     done
 
-    read -rp "请输入系统标题 [默认 小龙女她爸邮局服务系统]: " SYSTEM_TITLE_VALUE
-    SYSTEM_TITLE_VALUE="${SYSTEM_TITLE_VALUE:-小龙女她爸邮局服务系统}"
+    read -rp "请输入系统标题 [默认 Mail API Service]: " SYSTEM_TITLE_VALUE
+    SYSTEM_TITLE_VALUE="${SYSTEM_TITLE_VALUE:-Mail API Service}"
 
     SERVER_PUBLIC_IP_VALUE="$(get_public_ip)"
     read -rp "请输入服务器公网 IP [默认 ${SERVER_PUBLIC_IP_VALUE}]: " SERVER_PUBLIC_IP_INPUT
@@ -438,13 +440,12 @@ collect_inputs() {
 install_flow() {
     backup_existing_install
     create_project_dir
+    prepare_app_source
     install_system_packages
     setup_venv
     write_requirements
     install_python_packages
-    copy_app
     patch_app_config
-    write_web_runner
     write_smtp_runner
     write_systemd_services
     reload_and_start_services
@@ -453,7 +454,6 @@ install_flow() {
 }
 
 require_root
-check_source_file
 main_menu
 collect_inputs
 install_flow
