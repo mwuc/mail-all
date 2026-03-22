@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_NAME="mail_api"
 PROJECT_DIR="/opt/mail_api"
 VENV_DIR="${PROJECT_DIR}/venv"
 
@@ -155,7 +154,7 @@ install_python_packages() {
 }
 
 generate_secret_key() {
-    "${VENV_DIR}/bin/python" - <<'PY'
+    python3 - <<'PY'
 import secrets
 print(secrets.token_hex(32))
 PY
@@ -438,13 +437,7 @@ collect_inputs() {
 }
 
 install_flow() {
-    backup_existing_install
-    create_project_dir
     prepare_app_source
-    install_system_packages
-    setup_venv
-    write_requirements
-    install_python_packages
     patch_app_config
     write_smtp_runner
     write_systemd_services
@@ -455,5 +448,11 @@ install_flow() {
 
 require_root
 main_menu
+backup_existing_install
+create_project_dir
+install_system_packages
+setup_venv
+write_requirements
+install_python_packages
 collect_inputs
 install_flow
