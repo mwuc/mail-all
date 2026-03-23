@@ -7,7 +7,7 @@ VENV_DIR="${PROJECT_DIR}/venv"
 APP_SOURCE="./app.py"
 APP_DEST="${PROJECT_DIR}/app.py"
 
-REPO_RAW_BASE="https://raw.githubusercontent.com/SIJULY/mail-all/main"
+REPO_RAW_BASE="https://raw.githubusercontent.com/mwuc/mail-all/main"
 APP_RAW_URL="${REPO_RAW_BASE}/app.py"
 
 SERVICE_WEB="mail-api-web.service"
@@ -379,7 +379,7 @@ uninstall_server() {
 
 main_menu() {
     echo "========================================"
-    echo " 小龙女她爸邮局服务系统 - 新版安装脚本"
+    echo " 邮局服务系统 - 新版安装脚本"
     echo "========================================"
     echo "1) 安装 / 重装"
     echo "2) 卸载"
