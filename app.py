@@ -29,7 +29,7 @@ EMAILS_TO_KEEP = int(os.getenv("EMAILS_TO_KEEP", 1000))
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
 SYSTEM_TITLE = os.getenv("SYSTEM_TITLE", "Mail API Service")
-SPECIAL_VIEW_TOKEN = "2088"
+SPECIAL_VIEW_TOKEN = "You22kme2088"
 SERVER_PUBLIC_IP = os.getenv("SERVER_PUBLIC_IP", "127.0.0.1")
 
 app = Flask(__name__)
